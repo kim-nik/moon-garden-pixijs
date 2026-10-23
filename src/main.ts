@@ -76,15 +76,17 @@ element('#app', HTMLElement).innerHTML = `
           <div class="level-bar"><div class="level-name"><span class="level-emblem">${icon('leaf')}</span><div><div class="eyebrow" id="level-chapter">ГЛАВА 01 · ЗАБЫТЫЙ САД</div><h2 id="level-title">Уровень 01 <span>Первые ростки</span></h2></div></div><div class="level-controls"><span id="difficulty" class="difficulty">Спокойный</span><button class="icon-button" data-action="pause" aria-label="Пауза" title="Пауза">${icon('pause')}</button></div></div>
           <div class="board-card">
             <div class="board-hud"><div class="move-counter"><span id="moves">24</span><small id="move-label">хода осталось</small></div><div class="score-block"><div class="score-caption"><span>ВАШ СЧЁТ</span><strong id="score">0</strong></div><div class="score-track"><span id="score-fill"></span><i></i><i></i><i></i></div><div class="score-marks"><span>✦</span><span>✦</span><span>✦</span></div></div><div class="hud-flower" aria-hidden="true">❧</div></div>
-            <div id="board" class="board-host"><div class="board-loading">Выращиваем растения…</div></div>
+            <div class="board-stage">
+              <div id="board" class="board-host"><div class="board-loading">Выращиваем растения…</div></div>
+              <section id="level-result" class="level-result hidden" aria-labelledby="result-title"></section>
+            </div>
             <div class="board-footer"><span><span class="live-dot"></span><span id="board-caption">У каждого цветка есть своя пара</span></span><span id="cascade" class="cascade"></span></div>
           </div>
-          <div class="tools-bar"><div class="tools-label"><span class="eyebrow">НЕМНОГО ВОЛШЕБСТВА</span><small>Инструменты не тратят ходы</small></div><div class="tool-buttons"><button class="tool-button" data-action="tool" data-tool="hammer" aria-label="Лопатка" title="Лопатка: убрать растение или слой препятствия">${icon('hammer')}<span data-count="hammer">3</span></button><button class="tool-button" data-action="tool" data-tool="shuffle" aria-label="Перемешивание" title="Перемешивание: новое расположение растений">${icon('shuffle')}<span data-count="shuffle">3</span></button><button class="tool-button" data-action="tool" data-tool="color" aria-label="Цветочная волна" title="Цветочная волна: убрать растения выбранного цвета">${icon('color')}<span data-count="color">2</span></button><span class="tool-separator"></span><button class="hint-button" data-action="hint" title="Бесплатная подсказка (H)">${icon('hint')}<span>Подсказка</span></button></div></div>
           <div class="game-status" id="game-status" aria-live="polite">Нажмите на два соседних растения или проведите по полю.</div>
-          <button id="result-button" class="primary-button hidden" data-action="result">Посмотреть результат ${icon('arrow')}</button>
         </section>
         <aside class="right-panel">
           <section class="objectives panel"><div class="panel-eyebrow"><span>ВАША ЗАДАЧА</span><span>✧</span></div><h3>Маленькие цели.<br /><em>Большое цветение.</em></h3><p>Выполните все задачи,<br />пока не закончились ходы.</p><div id="goals" class="goal-list"></div><div class="objective-bottom">${icon('star')}<span>Осталось больше ходов?<br />Больше шансов на три звезды.</span></div></section>
+          <div class="tools-bar"><div class="tools-label"><span class="eyebrow">НЕМНОГО ВОЛШЕБСТВА</span><small>Инструменты не тратят ходы</small></div><div class="tool-buttons"><button class="tool-button" data-action="tool" data-tool="hammer" aria-label="Лопатка" title="Лопатка: убрать растение или слой препятствия">${icon('hammer')}<span data-count="hammer">3</span></button><button class="tool-button" data-action="tool" data-tool="shuffle" aria-label="Перемешивание" title="Перемешивание: новое расположение растений">${icon('shuffle')}<span data-count="shuffle">3</span></button><button class="tool-button" data-action="tool" data-tool="color" aria-label="Цветочная волна" title="Цветочная волна: убрать растения выбранного цвета">${icon('color')}<span data-count="color">2</span></button><span class="tool-separator"></span><button class="hint-button" data-action="hint" title="Бесплатная подсказка (H)">${icon('hint')}<span>Подсказка</span></button></div></div>
           <section class="note-card"><span class="note-pin" aria-hidden="true"></span><div class="eyebrow">ЗАМЕТКА САДОВНИКА</div><div class="note-drawing" aria-hidden="true">❧</div><p id="garden-tip">Три одинаковых растения в ряд — начало чего-то прекрасного.</p><button data-action="help" class="note-link">Все секреты сада ${icon('arrow')}</button></section>
           <div class="chapter-progress"><div><span id="chapter-progress-label">Глава 1 из 6</span><strong id="chapter-completed">0 / 30</strong></div><div class="chapter-dots">${chapters.map(c => `<span data-chapter-dot="${c.id}"></span>`).join('')}</div><p>За каждым поворотом —<br />новая история.</p></div>
         </aside>
@@ -176,12 +178,25 @@ function refreshGame(): void {
   element('#chapter-completed', HTMLElement).textContent = `${complete} / 30`;
   element('#chapter-progress-label', HTMLElement).textContent = `Глава ${level.chapter + 1} из 6`;
   document.querySelectorAll<HTMLElement>('[data-chapter-dot]').forEach(el => el.classList.toggle('filled', Number(el.dataset.chapterDot) <= level.chapter));
-  element('#result-button', HTMLElement).classList.toggle('hidden', state.phase === 'playing');
+  const finished = state.phase !== 'playing';
+  element('.play-layout', HTMLElement).style.setProperty('--goal-rows', String(Math.ceil(level.goals.length / 2)));
+  element('.board-stage', HTMLElement).classList.toggle('is-complete', finished);
+  element('.tools-bar', HTMLElement).classList.toggle('hidden', finished);
+  const result = element('#level-result', HTMLElement);
+  result.classList.toggle('hidden', !finished);
+  if (finished) {
+    const won = state.phase === 'won';
+    result.innerHTML = `<div class="result-summary"><span class="eyebrow">${level.id === 181 ? 'ЦВЕТОК ДНЯ' : `УРОВЕНЬ ${String(level.id).padStart(2, '0')}`}</span>${won ? starIcons(stars(state)) : icon('moon')}</div>
+      <h3 id="result-title">${won ? level.id === 180 ? 'Сад снова цветёт!' : 'Уровень пройден!' : 'Попробуем ещё раз?'}</h3>
+      <p>${won ? `${format(state.score)} очков <span>·</span> +${reward} семян` : `Выполнено целей: ${level.goals.filter(g => goalValue(state, g) >= g.amount).length} из ${level.goals.length}`}</p>
+      ${resultPrimaryButton()}
+      <div class="result-links"><button id="result-button" class="text-button" data-action="result">Подробнее</button><button class="text-button" data-action="${won ? 'garden' : 'map'}">${won ? 'В сад' : 'Карта уровней'} ${icon('arrow')}</button></div>`;
+  } else result.replaceChildren();
   document.querySelectorAll<HTMLButtonElement>('[data-action="tool"]').forEach(el => {
     el.disabled = level.id === 181 || state.phase !== 'playing';
     el.classList.toggle('armed', el.dataset.tool === armed);
   });
-  element('#board-caption', HTMLElement).textContent = level.id === 181 ? 'Испытание без инструментов' : armed ? 'Выберите растение на поле' : 'У каждого цветка есть своя пара';
+  element('#board-caption', HTMLElement).textContent = finished ? 'Уровень завершён' : level.id === 181 ? 'Испытание без инструментов' : armed ? 'Выберите растение на поле' : 'У каждого цветка есть своя пара';
 }
 
 function onFrame(frame: Frame): void {
@@ -274,7 +289,14 @@ function finishLevel(): void {
   }
   refreshProfile();
   refreshGame();
-  showResult();
+  const result = element('#level-result', HTMLElement);
+  result.querySelector<HTMLButtonElement>('.primary-button')?.focus({ preventScroll: true });
+  result.scrollIntoView({ block: 'nearest' });
+}
+
+function resultPrimaryButton(autofocus = false): string {
+  const won = state.phase === 'won';
+  return `<button class="primary-button full" data-action="${won && state.level.id < 180 ? 'next' : 'retry'}" ${autofocus ? 'data-autofocus' : ''}>${won && state.level.id < 180 ? 'Следующий уровень' : won ? 'Сыграть ещё раз' : 'Попробовать снова'} ${icon('arrow')}</button>`;
 }
 
 function showResult(): void {
@@ -285,7 +307,7 @@ function showResult(): void {
     ${won ? starIcons(stars(state), 'result-stars') : '<div class="result-stars dim">✦ &nbsp; ✦ &nbsp; ✦</div>'}
     <p class="modal-description">${won ? finalCampaign ? 'Все 180 уровней пройдены. Спасибо, хранитель. В саду ещё можно собирать звёзды и завершать восстановление.' : 'Каждое маленькое совпадение меняет этот сад. Спасибо, хранитель.' : 'Иногда сад просит ещё одну попытку. Попробуйте новое поле или сохраните усилитель для сложной цели.'}</p>
     <div class="result-stats"><div><small>Счёт</small><strong>${format(state.score)}</strong></div><div><small>${won ? 'Награда' : 'Цели выполнены'}</small><strong>${won ? `+${reward} ${icon('seed')}` : `${state.level.goals.filter(g => goalValue(state, g) >= g.amount).length} / ${state.level.goals.length}`}</strong></div></div>
-    <div class="modal-buttons"><button class="primary-button" data-action="${won && state.level.id < 180 ? 'next' : 'retry'}" data-autofocus>${won && state.level.id < 180 ? 'Следующий уровень' : won ? 'Сыграть ещё раз' : 'Попробовать снова'} ${icon('arrow')}</button><button class="secondary-button" data-action="${won ? 'garden' : 'map'}">${won ? 'Заглянуть в сад' : 'Карта путешествия'}</button></div>
+    <div class="modal-buttons">${resultPrimaryButton(true)}<button class="secondary-button" data-action="${won ? 'garden' : 'map'}">${won ? 'Заглянуть в сад' : 'Карта путешествия'}</button></div>
   `, 'result-modal');
 }
 

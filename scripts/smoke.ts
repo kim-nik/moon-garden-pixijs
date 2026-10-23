@@ -69,6 +69,23 @@ function resume(p: Profile): GameState {
   return state;
 }
 
+async function checkPlayViewport(completed = false): Promise<void> {
+  await page.evaluate(() => scrollTo(0, 0));
+  const layout = await page.evaluate(finished => {
+    const selectors = finished ? ['canvas', '.objectives', '#level-result', '#level-result .primary-button'] : ['canvas', '.objectives', '.tools-bar', '#game-status'];
+    const bottom = innerWidth <= 580 ? document.querySelector('.sidebar')!.getBoundingClientRect().top : innerHeight;
+    return {
+      width: innerWidth, scrollWidth: document.documentElement.scrollWidth,
+      elements: selectors.map(selector => {
+        const rect = document.querySelector(selector)!.getBoundingClientRect();
+        return { selector, visible: rect.top >= 0 && rect.left >= 0 && rect.right <= innerWidth + 1 && rect.bottom <= bottom + 1 };
+      }),
+    };
+  }, completed);
+  assert(layout.scrollWidth <= layout.width + 1, `no horizontal overflow at ${layout.width}px`);
+  for (const item of layout.elements) assert(item.visible, `${item.selector} fits the play viewport at ${layout.width}px`);
+}
+
 try {
   await page.goto(baseURL);
   await expect(page.locator('canvas')).toBeVisible({ timeout: 20000 });
@@ -76,6 +93,13 @@ try {
   await expect(page.locator('#modal-title')).toHaveText('У каждого сада есть начало.');
   await page.locator('[data-action="begin"]').click();
   checks.push('Fresh profile, PixiJS canvas and first-run tutorial');
+
+  for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }, { width: 320, height: 740 }, { width: 768, height: 1024 }]) {
+    await page.setViewportSize(viewport);
+    await checkPlayViewport();
+  }
+  await page.setViewportSize({ width: 1366, height: 768 });
+  checks.push('Board, goals, tools and status fit laptop, tablet and phone screens without scrolling');
 
   const initial = resume(await profile());
   let invalid: Command | null = null;
@@ -100,7 +124,7 @@ try {
   await page.keyboard.press('Escape');
   checks.push('Free hint and keyboard cell navigation');
 
-  await page.locator('[data-action="settings"]').click();
+  await page.locator('.top-actions [data-action="settings"]').click();
   await page.locator('#setting-motion').check();
   await page.locator('#setting-sound').uncheck();
   await page.locator('#modal .modal-top [data-action="close"]').click();
@@ -111,12 +135,33 @@ try {
     const run = report.rows.find(row => row.level === id);
     assert(run);
     for (const input of run.commands) await command(input, id === 2);
-    await expect(page.locator('#modal-title')).toHaveText('Ещё немного жизни.');
+    await expect(page.locator('#result-title')).toHaveText('Уровень пройден!');
+    await expect(page.locator('#modal')).not.toBeVisible();
     assert((await profile()).completed[String(id)]);
-    if (id < 3) await page.locator('[data-action="next"]').click();
+    if (id === 1) {
+      for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }, { width: 320, height: 740 }, { width: 768, height: 1024 }]) {
+        await page.setViewportSize(viewport);
+        await checkPlayViewport(true);
+        await page.locator('#result-button').click();
+        await expect(page.locator('#modal-title')).toHaveText('Ещё немного жизни.');
+        await page.locator('#modal .modal-top [data-action="close"]').click();
+        await checkPlayViewport(true);
+        await page.locator('#result-button').click();
+        await page.keyboard.press('Escape');
+        await expect(page.locator('#modal')).not.toBeVisible();
+        await checkPlayViewport(true);
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({ path: 'reports/verification/completed-mobile.png' });
+      await page.setViewportSize({ width: 1366, height: 768 });
+      await page.screenshot({ path: 'reports/verification/completed-desktop.png' });
+      checks.push('Completion action stays inside the board and viewport after closing details with close button or Escape');
+    }
+    if (id < 3) await page.locator('#level-result [data-action="next"]').click();
   }
   checks.push('Levels 1–3 won with real pointer taps and swipes, rewards and sequential unlocking');
 
+  await page.locator('#result-button').click();
   await page.locator('#modal [data-action="garden"]').click();
   const gardenBefore = await profile();
   await page.locator('[data-action="restore"]').click();
@@ -129,7 +174,7 @@ try {
   checks.push('Garden restoration spends stars, adds reward and advances visible story');
 
   await page.locator('[data-action="result"]').click();
-  await page.locator('[data-action="next"]').click();
+  await page.locator('#modal [data-action="next"]').click();
   await page.locator('[data-action="begin"]').click();
   let ongoing = resume(await profile());
   const move = legalMoves(ongoing).find(move => {
@@ -214,7 +259,7 @@ try {
   checks.push('390, 320, 768 and 1280px viewports have no horizontal overflow; map remains operable');
 
   await page.setViewportSize({ width: 1440, height: 1080 });
-  await page.locator('[data-action="settings"]').click();
+  await page.locator('.top-actions [data-action="settings"]').click();
   const downloadEvent = page.waitForEvent('download');
   await page.locator('[data-action="export"]').click();
   const download = await downloadEvent;
@@ -239,6 +284,11 @@ try {
   await page.locator('#confirm-import').click();
   await expect(page.locator('#level-title')).toContainText('121');
   assert.equal((await profile()).active?.levelId, 121);
+  for (const viewport of [{ width: 1366, height: 768 }, { width: 390, height: 844 }, { width: 320, height: 740 }]) {
+    await page.setViewportSize(viewport);
+    await checkPlayViewport();
+  }
+  await page.setViewportSize({ width: 1366, height: 768 });
   const late = resume(await profile());
   assert.equal(late.level.colors, 6);
   assert(late.obstacles.some(o => o?.hp === 2));
@@ -267,13 +317,14 @@ try {
   await page.locator('#confirm-import').click();
   await expect(page.locator('#moves')).toHaveText('1');
   await command(lastInput);
-  await expect(page.locator('#modal-title')).toHaveText('Цветение ещё впереди.');
-  await page.locator('[data-action="retry"]').click();
+  await expect(page.locator('#result-title')).toHaveText('Попробуем ещё раз?');
+  await checkPlayViewport(true);
+  await page.locator('#level-result [data-action="retry"]').click();
   await expect(page.locator('#moves')).toHaveText(String(levels[120].moves));
   assert.equal((await profile()).active?.log.length, 0);
   checks.push('Last move produces defeat when goals remain; retry starts immediately without a life timer');
 
-  await page.locator('[data-action="settings"]').click();
+  await page.locator('.top-actions [data-action="settings"]').click();
   await page.locator('[data-action="reset-confirm"]').click();
   await expect(page.locator('#modal-title')).toHaveText('Начать новую историю?');
   assert.equal(Object.keys((await profile()).completed).length, 120);
